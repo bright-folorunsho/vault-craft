@@ -291,3 +291,95 @@
     (ok true)
   )
 )
+
+;; READ-ONLY FUNCTIONS
+
+;; Get the contract owner address
+(define-read-only (get-contract-owner)
+  (ok CONTRACT-OWNER)
+)
+
+;; Get total STX locked in the protocol
+(define-read-only (get-stx-pool)
+  (ok (var-get stx-pool))
+)
+
+;; Get current number of governance proposals
+(define-read-only (get-proposal-count)
+  (ok (var-get proposal-count))
+)
+
+;; PRIVATE FUNCTIONS
+
+;; Determine user tier based on stake amount
+(define-private (get-tier-info (stake-amount uint))
+  (if (>= stake-amount u10000000)
+    {
+      tier-level: u3,
+      reward-multiplier: u200,
+    }
+    (if (>= stake-amount u5000000)
+      {
+        tier-level: u2,
+        reward-multiplier: u150,
+      }
+      {
+        tier-level: u1,
+        reward-multiplier: u100,
+      }
+    )
+  )
+)
+
+;; Calculate reward multiplier based on lock duration
+(define-private (calculate-lock-multiplier (lock-period uint))
+  (if (>= lock-period u8640) ;; 2 months lock
+    u150 ;; 1.5x multiplier
+    (if (>= lock-period u4320) ;; 1 month lock
+      u125 ;; 1.25x multiplier
+      u100 ;; No lock bonus
+    )
+  )
+)
+
+;; Calculate accumulated rewards for user position
+(define-private (calculate-rewards
+    (user principal)
+    (blocks uint)
+  )
+  (let (
+      (staking-position (unwrap! (map-get? StakingPositions user) u0))
+      (user-position (unwrap! (map-get? UserPositions user) u0))
+      (stake-amount (get amount staking-position))
+      (base-rate (var-get base-reward-rate))
+      (multiplier (get rewards-multiplier user-position))
+    )
+    ;; Calculate rewards: (stake * rate * multiplier * blocks) / normalizer
+    (/ (* (* (* stake-amount base-rate) multiplier) blocks) u14400000)
+  )
+)
+
+;; Validate proposal description meets requirements
+(define-private (is-valid-description (desc (string-utf8 256)))
+  (and
+    (>= (len desc) u10) ;; Minimum 10 characters
+    (<= (len desc) u256) ;; Maximum 256 characters
+  )
+)
+
+;; Validate lock period options
+(define-private (is-valid-lock-period (lock-period uint))
+  (or
+    (is-eq lock-period u0) ;; No lock period
+    (is-eq lock-period u4320) ;; 1 month lock
+    (is-eq lock-period u8640) ;; 2 month lock
+  )
+)
+
+;; Validate voting period duration
+(define-private (is-valid-voting-period (period uint))
+  (and
+    (>= period u100) ;; Minimum 100 blocks
+    (<= period u2880) ;; Maximum ~1 day
+  )
+)
